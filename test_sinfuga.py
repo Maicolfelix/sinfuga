@@ -171,10 +171,20 @@ with tempfile.TemporaryDirectory() as tmp:
     assert claude["enabledPlugins"] == {"a": True}
     assert len(claude["hooks"]["PreToolUse"]) == len(codex["hooks"]["UserPromptSubmit"]) == 1
     assert (home / ".sinfuga" / "sinfuga.py").exists()
-    assert (home / ".codex" / "skills" / "sinfuga" / "SKILL.md").exists()
-    assert (home / ".claude" / "agents" / "sinfuga-auditor.md").exists()
+    installed = [
+        home / ".claude" / "skills" / "sinfuga" / "SKILL.md",
+        home / ".agents" / "skills" / "sinfuga" / "SKILL.md",
+        home / ".claude" / "agents" / "sinfuga-auditor.md",
+        home / ".codex" / "agents" / "sinfuga_auditor.toml",
+    ]
+    assert all(path.exists() for path in installed)
+    if sys.version_info >= (3, 11):  # tomllib no existe en 3.9
+        import tomllib
+        agent = tomllib.loads(installed[-1].read_text("utf-8"))
+        assert {"name", "description", "developer_instructions"} <= set(agent), agent
     subprocess.run([sys.executable, SCRIPT, "uninstall"], env=env, check=True, capture_output=True)
     assert json.loads((home / ".claude" / "settings.json").read_text()) == {"enabledPlugins": {"a": True}}
+    assert not any(path.exists() for path in installed)
 
     # El comando instalado arranca desde las shells de cada sistema
     command = f'python "{Path(SCRIPT).as_posix()}"'

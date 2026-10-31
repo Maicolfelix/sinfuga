@@ -25,6 +25,18 @@ SinFuga no es un límite de tu plan ni de la IA. Es una protección local: expli
 
 Solo cuenta un mensaje escrito por una persona, así que la IA no puede aprobarse sola con sus herramientas. Aun así, los hooks no son una barrera de seguridad completa: una IA con acceso total a la terminal podría intentar rodearlos.
 
+## Qué incluye
+
+| Pieza | Claude Code | Codex | Qué hace |
+|---|---|---|---|
+| Hook | Sí | Sí | Detiene el dato, explica el riesgo y pide tu decisión. Es la única pieza que bloquea. |
+| Skill `sinfuga` | Sí | Sí | Enseña a la IA a manejar los avisos y hacer auditorías. |
+| Agente auditor | `sinfuga-auditor` | `sinfuga_auditor` | Audita un proyecto y su historial de git, de solo lectura por instrucción. |
+
+La skill y el agente son instrucciones que la IA puede ignorar. En Codex real se probaron con un modelo real desde un proyecto temporal. En Claude Code real se verificó que cargan con un modelo simulado, pero no cómo se comporta un modelo real con ellos.
+
+Se usan pidiéndolo, por ejemplo: «Have sinfuga_auditor audit this project», o con `$sinfuga` en Codex.
+
 ## Instalación
 
 Necesita Python 3.9 o superior disponible como `python`.
@@ -36,11 +48,11 @@ python test_sinfuga.py
 python sinfuga.py install
 ```
 
-`install` copia el script a `~/.sinfuga`, agrega hooks a `~/.claude/settings.json` y `~/.codex/hooks.json` (con una copia `.bak`), e instala la skill y el agente auditor. 
+`install` copia el script a `~/.sinfuga`, agrega hooks a `~/.claude/settings.json` y `~/.codex/hooks.json` (con una copia `.bak`), e instala la skill y el agente auditor en la carpeta de usuario de cada herramienta. 
 
 **Codex ignora en silencio los hooks que no has aprobado.** Hasta que abras `/hooks` y apruebes SinFuga, Codex no avisa y no se bloquea nada.
 
-Para quitar los hooks:
+Para quitar los hooks, la skill y el agente:
 
 ```bash
 python sinfuga.py uninstall

@@ -5,7 +5,7 @@ Sin argumentos funciona como hook: lee JSON por stdin y responde JSON para deten
 Explica el riesgo y deja decidir a la persona: `sinfuga permitir` solo vale en un mensaje suyo.
   sinfuga.py scan RUTA   audita archivos (exit 1 si encuentra algo)
   sinfuga.py install     instala hooks, skill y agente en este usuario
-  sinfuga.py uninstall   quita los hooks
+  sinfuga.py uninstall   quita hooks, skill y agente
 Nunca imprime el secreto: solo el tipo de hallazgo y el archivo.
 """
 import fnmatch
@@ -320,6 +320,16 @@ def set_hooks(path, entry):
     path.write_text(json.dumps(config, indent=2, ensure_ascii=False) + "\n", "utf-8")
 
 
+def skill_dirs():
+    home = Path.home()
+    return [home / ".claude" / "skills" / "sinfuga", home / ".agents" / "skills" / "sinfuga"]
+
+
+def agent_files():
+    home = Path.home()
+    return [home / ".claude" / "agents" / "sinfuga-auditor.md", home / ".codex" / "agents" / "sinfuga_auditor.toml"]
+
+
 def install():
     here = Path(__file__).resolve().parent
     home = Path.home()
@@ -332,10 +342,11 @@ def install():
     entry = {"hooks": [{"type": "command", "command": f'python "{target.as_posix()}"', "timeout": 10}]}
     for path in config_files():
         set_hooks(path, entry)
-    for tool in (".claude", ".codex"):
-        shutil.copytree(here / "skills" / "sinfuga", home / tool / "skills" / "sinfuga", dirs_exist_ok=True)
-    (home / ".claude" / "agents").mkdir(exist_ok=True)
-    shutil.copy2(here / "agents" / "sinfuga-auditor.md", home / ".claude" / "agents")
+    for path in skill_dirs():
+        shutil.copytree(here / "skills" / "sinfuga", path, dirs_exist_ok=True)
+    for path in agent_files():
+        path.parent.mkdir(exist_ok=True)
+        shutil.copy2(here / "agents" / path.name, path)
     print("Instalado. ATENCION: Codex ignora en silencio este hook hasta que lo apruebes en /hooks.")
 
 
@@ -351,7 +362,11 @@ def main():
         for path in config_files():
             if path.exists():
                 set_hooks(path, None)
-        print("Hooks quitados.")
+        for path in skill_dirs():
+            shutil.rmtree(path, ignore_errors=True)
+        for path in agent_files():
+            path.unlink(missing_ok=True)
+        print("SinFuga desinstalado.")
     else:
         sys.exit(__doc__)
 
