@@ -31,7 +31,7 @@ Only a message typed by a person counts, so the AI cannot approve itself through
 |---|---|---|---|
 | Hook | Yes | Yes | Stops the data, explains the risk and asks for your decision. This is the only piece that blocks. |
 | `sinfuga` skill | Yes | Yes | Teaches the AI how to handle notices and run audits. |
-| Auditor agent | `sinfuga-auditor` | `sinfuga_auditor` | Audits a project and its git history, read-only by instruction. |
+| Auditor agent | `sinfuga-auditor` | `sinfuga_auditor` | Runs `audit` on a project or repository and summarizes it, read-only by instruction. |
 
 The skill and the agent are instructions the AI can ignore. In real Codex they were tested with a real model from a temporary project. In real Claude Code, loading was verified with a simulated model, but not how a real model behaves with them.
 
@@ -58,13 +58,26 @@ To remove the hooks, the skill and the agent:
 python sinfuga.py uninstall
 ```
 
-## Audit a project
+## Audit a project or repository
+
+```bash
+python sinfuga.py audit path/to/project
+python sinfuga.py audit https://github.com/owner/repo
+```
+
+`audit` reviews the current version, the full git history and files on disk that were never committed, so it also finds secrets that were deleted but remain in the history. The report groups findings by severity with file, line, commit, why it matters and what to do. It never shows the values.
+
+- It exits with 0 if it finds nothing, 1 if it finds something and 2 on error.
+- Private repositories use your own git access. URLs containing credentials are refused.
+- The target repository's `.sinfuga-ignore` is not honored for URLs.
+- Some findings can be example or test data, so verify each one.
+- Audit only repositories you own or are allowed to review.
+
+For a quick check of current files only:
 
 ```bash
 python sinfuga.py scan path/to/project
 ```
-
-It prints file, line and type, never the value, and exits with 1 if it finds something.
 
 ## Exceptions
 

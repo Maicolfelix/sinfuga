@@ -31,7 +31,7 @@ Solo cuenta un mensaje escrito por una persona, así que la IA no puede aprobars
 |---|---|---|---|
 | Hook | Sí | Sí | Detiene el dato, explica el riesgo y pide tu decisión. Es la única pieza que bloquea. |
 | Skill `sinfuga` | Sí | Sí | Enseña a la IA a manejar los avisos y hacer auditorías. |
-| Agente auditor | `sinfuga-auditor` | `sinfuga_auditor` | Audita un proyecto y su historial de git, de solo lectura por instrucción. |
+| Agente auditor | `sinfuga-auditor` | `sinfuga_auditor` | Ejecuta `audit` sobre un proyecto o repositorio y lo resume, de solo lectura por instrucción. |
 
 La skill y el agente son instrucciones que la IA puede ignorar. En Codex real se probaron con un modelo real desde un proyecto temporal. En Claude Code real se verificó que cargan con un modelo simulado, pero no cómo se comporta un modelo real con ellos.
 
@@ -58,13 +58,26 @@ Para quitar los hooks, la skill y el agente:
 python sinfuga.py uninstall
 ```
 
-## Auditar un proyecto
+## Auditar un proyecto o repositorio
+
+```bash
+python sinfuga.py audit ruta/del/proyecto
+python sinfuga.py audit https://github.com/dueno/repositorio
+```
+
+`audit` revisa la versión actual, todo el historial de git y los archivos en disco que nunca se subieron, así que también encuentra secretos que se borraron pero siguen en el historial. El informe agrupa los hallazgos por gravedad, con archivo, línea, commit, por qué importa y qué hacer. Nunca muestra los valores.
+
+- Sale con 0 si no encuentra nada, con 1 si encuentra algo y con 2 si hay un error.
+- Los repositorios privados usan tu propio acceso de git. Las URL con credenciales se rechazan.
+- En una URL no se respeta el `.sinfuga-ignore` del repositorio auditado.
+- Algunos hallazgos pueden ser datos de ejemplo o de prueba, así que verifica cada uno.
+- Audita solo repositorios tuyos o que tengas permiso de revisar.
+
+Para revisar rápido solo los archivos actuales:
 
 ```bash
 python sinfuga.py scan ruta/del/proyecto
 ```
-
-Muestra archivo, línea y tipo, nunca el valor, y sale con 1 si encuentra algo.
 
 ## Excepciones
 

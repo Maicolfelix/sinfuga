@@ -3,7 +3,8 @@
 
 Sin argumentos funciona como hook: lee JSON por stdin y responde JSON para detener.
 Explica el riesgo y deja decidir a la persona: `sinfuga permitir` solo vale en un mensaje suyo.
-  sinfuga.py scan RUTA   audita archivos (exit 1 si encuentra algo)
+  sinfuga.py scan RUTA   revisa archivos actuales (exit 1 si encuentra algo)
+  sinfuga.py audit RUTA|URL   informe de un proyecto o repositorio, con su historial de git
   sinfuga.py install     instala hooks, skill y agente en este usuario
   sinfuga.py uninstall   quita hooks, skill y agente
 Nunca imprime el secreto: solo el tipo de hallazgo y el archivo.
@@ -15,7 +16,9 @@ import json
 import os
 import re
 import shutil
+import subprocess
 import sys
+import tempfile
 import time
 from pathlib import Path
 
@@ -274,14 +277,17 @@ def hook():
         }}))
 
 
+def walk_files(root):
+    for folder, dirs, names in os.walk(root):
+        dirs[:] = [d for d in dirs if d not in SKIP_DIRS]
+        for name in names:
+            yield Path(folder, name)
+
+
 def scan(root):
     root = Path(root)
     base = root.parent if root.is_file() else root
-    files = [root] if root.is_file() else (
-        Path(d, f) for d, dirs, names in os.walk(root)
-        if not dirs.__setitem__(slice(None), [x for x in dirs if x not in SKIP_DIRS])
-        for f in names
-    )
+    files = [root] if root.is_file() else walk_files(root)
     hits = 0
     for path in files:
         if ignored(path, base):
@@ -296,6 +302,171 @@ def scan(root):
             pass
     print(f"{hits} hallazgo(s)")
     return 1 if hits else 0
+
+
+def git(repo, *args):
+    return subprocess.run(["git", "-C", str(repo), *args], capture_output=True, text=True, encoding="utf-8", errors="replace")
+
+
+def history_blobs(repo):
+    """Da (sha, ruta, contenido) de cada archivo de cualquier commit, una vez por version."""
+    paths = {}
+    for line in git(repo, "rev-list", "--objects", "--all").stdout.splitlines():
+        sha, _, path = line.partition(" ")
+        if path:
+            paths.setdefault(sha, path)
+    # Un archivo como stdin evita el bloqueo de escribir y leer la misma tuberia.
+    with tempfile.TemporaryFile() as shas:
+        shas.write("".join(f"{sha}\n" for sha in paths).encode())
+        shas.seek(0)
+        batch = subprocess.Popen(["git", "-C", str(repo), "cat-file", "--batch"], stdin=shas, stdout=subprocess.PIPE)
+        for sha, path in paths.items():
+            header = batch.stdout.readline().split()
+            if len(header) != 3:
+                continue
+            data = batch.stdout.read(int(header[2]) + 1)[:-1]  # +1: salto de linea tras cada objeto
+            if header[1] == b"blob":
+                yield sha, path, data
+        batch.wait()
+
+
+def audit_repo(repo, patterns):
+    """Hallazgos del historial como {(tipo, ruta): (linea, estado, sha)}."""
+    head = {line.split()[2] for line in git(repo, "ls-tree", "-r", "HEAD").stdout.splitlines() if line.split()[1] == "blob"}
+    found = {}
+
+    def add(rule, path, line, sha):
+        state = "actual" if sha in head else "historial"
+        if (rule, path) not in found or state == "actual":
+            found[rule, path] = (line, state, sha)
+
+    for sha, path, data in history_blobs(repo):
+        if any(fnmatch.fnmatch(path, p) for p in patterns):
+            continue
+        if SENSITIVE_PATH.search(path) and not path.endswith(IGNORE_FILE):
+            add("ruta sensible", path, 0, sha)
+        if len(data) > MAX_FILE or b"\0" in data[:8000]:
+            continue
+        for number, line in enumerate(data.decode("utf-8", "ignore").splitlines(), 1):
+            for rule in find_secrets(line):
+                add(rule, path, number, sha)
+    return found
+
+
+def audit_folder(root, repo, found):
+    """Agrega lo que esta en disco y aun no entro a git."""
+    for path in walk_files(root):
+        rel = path.relative_to(root).as_posix()
+        if ignored(path, root):
+            continue
+        try:
+            lines = path.read_text("utf-8", "ignore").splitlines() if path.stat().st_size <= MAX_FILE else []
+        except OSError:
+            continue
+        for number, line in enumerate(lines, 1):
+            for rule in find_secrets(line):
+                found.setdefault((rule, rel), (number, "local" if repo else "archivo", None))
+
+
+def gitignore_gaps(repo):
+    # ponytail: busca el texto del patron; `git check-ignore` necesitaria copia de trabajo.
+    text = git(repo, "show", "HEAD:.gitignore").stdout
+    return [p for p in (".env", "*.pem") if p not in text]
+
+
+def severity(rule, state):
+    if state == "local" or rule == "gitignore incompleto":
+        return "MEDIO"
+    return "ALTO" if any(n in rule for names, _ in RISKS[:2] for n in names) else "CRÍTICO"
+
+
+def risk_of(rule):
+    if rule == "gitignore incompleto":
+        return "Un `git add .` podría subir credenciales sin que te des cuenta."
+    return next((text for names, text in RISKS if any(n in rule for n in names)), "")
+
+
+def print_report(target, found, gaps, commits, repo=None):
+    print(f"Auditoría de SinFuga: {target}")
+    print(f"Commits revisados: {commits}. El informe nunca muestra los valores.\n")
+    groups = {}
+    for (rule, path), (line, state, sha) in found.items():
+        groups.setdefault((severity(rule, state), rule), []).append((path, line, state, sha))
+    if gaps:
+        groups["MEDIO", "gitignore incompleto"] = [(".gitignore", 0, f"falta: {', '.join(gaps)}", None)]
+    if not groups:
+        print("No se encontró nada. Esto no garantiza que no haya fugas: solo revisa patrones conocidos.")
+        return 0
+    order = {"CRÍTICO": 0, "ALTO": 1, "MEDIO": 2}
+    print(f"Hallazgos: {sum(len(v) for v in groups.values())}\n")
+    for (level, rule), places in sorted(groups.items(), key=lambda g: (order[g[0][0]], g[0][1])):
+        print(f"[{level}] {rule}")
+        print(f"  Por qué importa: {risk_of(rule)}")
+        for path, line, state, sha in sorted(places):
+            where = f"{path}:{line}" if line else path
+            print(f"  - {where} ({STATES.get(state, state)}{commit_note(repo, sha)})")
+        print()
+    print("Qué hacer:")
+    print("- Revoca y reemplaza cada credencial marcada como actual o historial: borrarla no basta.")
+    print("- Si el repositorio es público, considera expuesto lo que esté en git: copias y forks pueden conservarlo.")
+    print("- Mueve los secretos a variables de entorno y limpia el historial si guardaba datos personales.")
+    print("- Algunos hallazgos pueden ser datos de ejemplo o de prueba: verifica cada uno antes de actuar.")
+    print("- Solo se revisan patrones conocidos: un informe corto no garantiza que no haya más fugas.")
+    return 1
+
+
+STATES = {
+    "actual": "está en la versión actual",
+    "historial": "ya no está, pero sigue en el historial",
+    "local": "solo en tu equipo, sin subir a git",
+    "archivo": "en un archivo de la carpeta",
+}
+
+
+def commit_note(repo, sha):
+    if not sha or not repo:
+        return ""
+    commits = git(repo, "log", "--all", "--format=%h", f"--find-object={sha}").stdout.split()
+    return f", commit {commits[-1]}" if commits else ""
+
+
+REMOTE = re.compile(r"^(?:https://[^\s@/]+/\S+|ssh://git@\S+|git@[\w.-]+:\S+)$")
+
+
+def audit_git(target, repo, root):
+    # Un repositorio ajeno no decide que se le revisa: su .sinfuga-ignore no cuenta.
+    patterns = ignore_patterns(str(root)) if root else ()
+    found = audit_repo(repo, patterns)
+    if root:
+        audit_folder(root, True, found)
+    commits = git(repo, "rev-list", "--all", "--count").stdout.strip() or "0"
+    has_head = git(repo, "rev-parse", "--verify", "-q", "HEAD").returncode == 0
+    return print_report(target, found, gitignore_gaps(repo) if has_head else [], commits, repo)
+
+
+def audit(target):
+    sys.stdout.reconfigure(errors="replace")
+    if REMOTE.match(target) and not Path(target).exists():
+        env = {**os.environ, "GIT_TERMINAL_PROMPT": "0", "GIT_ALLOW_PROTOCOL": "https:ssh",
+               "GIT_SSH_COMMAND": "ssh -oBatchMode=yes"}
+        with tempfile.TemporaryDirectory() as folder:
+            # --mirror no crea copia de trabajo ni ejecuta nada del repositorio; solo se leen datos.
+            clone = subprocess.run(["git", "clone", "--quiet", "--mirror", "--", target, folder],
+                                   env=env, capture_output=True, timeout=900)
+            if clone.returncode:
+                print("No se pudo clonar. Revisa la URL, o si es privado tus permisos de git.", file=sys.stderr)
+                return 2
+            return audit_git(target, folder, None)
+    root = Path(target)
+    if not root.is_dir():
+        print("Indica una carpeta existente o una URL https:// o git@ sin credenciales.", file=sys.stderr)
+        return 2
+    top = git(root, "rev-parse", "--show-toplevel")
+    if top.returncode:
+        found = {}
+        audit_folder(root, False, found)
+        return print_report(target, found, [], 0)
+    return audit_git(target, top.stdout.strip(), Path(top.stdout.strip()))
 
 
 def config_files():
@@ -356,6 +527,8 @@ def main():
         hook()
     elif args[0] == "scan" and len(args) == 2:
         sys.exit(scan(args[1]))
+    elif args[0] == "audit" and len(args) == 2:
+        sys.exit(audit(args[1]))
     elif args == ["install"]:
         install()
     elif args == ["uninstall"]:

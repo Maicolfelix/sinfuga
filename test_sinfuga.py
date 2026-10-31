@@ -149,6 +149,60 @@ with tempfile.TemporaryDirectory() as tmp:
     permits.write_text("dañado", "utf-8")
     blocked(session_tool("Read", action))
 
+    # Auditoria completa: historial, version actual, disco y archivos sensibles
+    repo = Path(tmp, "repo")
+    repo.mkdir()
+
+    def run_git(*args):
+        subprocess.run(["git", "-C", str(repo), "-c", "user.name=t", "-c", "user.email=t@t.test", *args],
+                       check=True, capture_output=True)
+
+    def audit(target, cwd=None):
+        return subprocess.run([sys.executable, SCRIPT, "audit", str(target)], capture_output=True, encoding="utf-8",
+                              errors="replace", env={**HOOK_ENV, "PYTHONIOENCODING": "utf-8"}, cwd=cwd)
+
+    run_git("init", "-q", "-b", "main")
+    (repo / "viejo.py").write_text(f'KEY = "{AWS}"\n')
+    (repo / ".env").write_text("A=1\n")
+    (repo / "pagos.csv").write_text(f"nombre,{CPF}\n")
+    run_git("add", "-A")
+    run_git("commit", "-q", "-m", "uno")
+    (repo / "viejo.py").unlink()
+    (repo / "actual.py").write_text(f'\nTOKEN = "{GITHUB}"\n')
+    run_git("add", "-A")
+    run_git("commit", "-q", "-m", "dos")
+    (repo / "borrador.py").write_text(f'K = "{OPENAI}"\n')  # sin subir a git
+    report = audit(repo)
+    assert report.returncode == 1, report
+    out = report.stdout
+    for secret in (AWS, GITHUB, OPENAI, CPF):
+        assert secret not in out, out
+    assert "viejo.py:1" in out and "sigue en el historial" in out, out
+    assert "actual.py:2" in out and "está en la versión actual" in out, out
+    assert "borrador.py:1" in out and "sin subir a git" in out, out
+    assert "[CRÍTICO] token GitHub" in out and "[ALTO] CPF de Brasil" in out, out
+    assert "[CRÍTICO] ruta sensible" in out and ".env (" in out, out
+    assert "[MEDIO] gitignore incompleto" in out and "commit " in out, out
+    assert out.index("[CRÍTICO]") < out.index("[ALTO]") < out.index("[MEDIO]"), out
+
+    # Las excepciones locales valen; un .sinfuga-ignore no oculta el resto
+    (repo / ".sinfuga-ignore").write_text("viejo.py\n")
+    assert "viejo.py" not in audit(repo).stdout
+    assert "actual.py" in audit(repo).stdout
+    (repo / ".sinfuga-ignore").unlink()
+
+    # Carpeta sin git y repositorio limpio
+    assert audit(project).returncode == 1
+    clean = Path(tmp, "limpio")
+    clean.mkdir()
+    (clean / "a.py").write_text("print('hola')\n")
+    assert audit(clean).returncode == 0
+
+    # Entradas peligrosas o invalidas no llegan a git
+    for bad in ("https://u:" + "clave@github.com/a/b", "ext::sh -c x", "--upload-pack=x", "http://github.com/a/b", "no-existe"):
+        p = audit(bad, cwd=tmp)
+        assert p.returncode == 2 and "clave@" not in p.stdout + p.stderr, (bad, p)
+
     # Falla cerrado ante entrada invalida
     p = subprocess.run([sys.executable, SCRIPT], input=b"no es json", capture_output=True)
     assert p.returncode == 2, p

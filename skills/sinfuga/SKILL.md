@@ -24,7 +24,9 @@ Un hook ya bloquea secretos y rutas sensibles antes de enviarlos. Esta skill cub
 ## Para auditar
 
 ```bash
-python ~/.sinfuga/sinfuga.py scan RUTA
+python ~/.sinfuga/sinfuga.py audit RUTA_O_URL
 ```
 
-Reporta archivo, linea y tipo, nunca el valor. Si un secreto ya llego a un repositorio o a una conversacion con IA, se considera expuesto: indica al usuario que lo revoque y genere otro. Borrarlo no basta.
+Revisa la version actual, el historial de git completo y lo que este en disco. Tambien acepta la URL de un repositorio. Usa `scan RUTA` solo para una revision rapida de archivos actuales.
+
+Reporta archivo, linea y tipo, nunca el valor. Separa lo que parezca dato de ejemplo de lo que parezca real. Si un secreto ya llego a un repositorio o a una conversacion con IA, se considera expuesto: indica al usuario que lo revoque y genere otro. Borrarlo no basta.
