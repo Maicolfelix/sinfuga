@@ -42,7 +42,7 @@ Use them by asking, for example: "Have sinfuga_auditor audit this project", or `
 Requires Python 3.9+ available as `python`.
 
 ```bash
-git clone <repository-url>
+git clone https://github.com/Maicolfelix/sinfuga.git
 cd sinfuga
 python test_sinfuga.py
 python sinfuga.py install
