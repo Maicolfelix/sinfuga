@@ -4,7 +4,7 @@
 
 SinFuga frena las fugas accidentales de secretos y datos personales antes de que lleguen a Claude Code o Codex. Es un solo archivo de Python sin dependencias, y detecta documentos de identidad de América Latina.
 
-> **Estado: versión temprana.** El bloqueo se verificó dentro de Claude Code 2.1.309 real con un modelo local simulado. Dentro de Codex real aún no se ha verificado, solo con llamadas simuladas. Reduce los accidentes, pero no garantiza que nada se filtre.
+> **Estado: versión temprana.** El bloqueo se verificó en Windows dentro de Codex 0.166.0-alpha.5.1 real, y dentro de Claude Code 2.1.309 real con un modelo local simulado. Otras versiones pueden comportarse distinto. Reduce los accidentes, pero no garantiza que nada se filtre.
 
 ## Qué bloquea
 

@@ -4,7 +4,7 @@
 
 SinFuga stops accidental leaks of secrets and personal data before they reach Claude Code or Codex. It is one Python file with no dependencies, and it has detectors for Latin American identity documents.
 
-> **Status: early version.** Blocking was verified inside real Claude Code 2.1.309 against a simulated local model. Inside real Codex it has not been verified yet, only through simulated hook calls. It reduces accidents; it does not guarantee that nothing leaks.
+> **Status: early version.** Blocking was verified on Windows inside real Codex 0.166.0-alpha.5.1, and inside real Claude Code 2.1.309 against a simulated local model. Other versions may behave differently. It reduces accidents; it does not guarantee that nothing leaks.
 
 ## What it blocks
 
