@@ -15,6 +15,16 @@ SinFuga frena las fugas accidentales de secretos y datos personales antes de que
 
 Los avisos nunca repiten el secreto, y lo que SinFuga no entiende se bloquea.
 
+## Tú decides
+
+SinFuga no es un límite de tu plan ni de la IA. Es una protección local: explica qué encontró, por qué es peligroso y te deja elegir.
+
+- **Lo más seguro:** quita el dato, o usa una variable de entorno o valores falsos.
+- **Continuar con un mensaje:** vuelve a enviarlo empezando por `sinfuga permitir:`.
+- **Continuar con una acción:** escribe el código del aviso, por ejemplo `sinfuga permitir 1a2b3c`. Funciona una vez, solo para esa acción exacta y durante 10 minutos.
+
+Solo cuenta un mensaje escrito por una persona, así que la IA no puede aprobarse sola con sus herramientas. Aun así, los hooks no son una barrera de seguridad completa: una IA con acceso total a la terminal podría intentar rodearlos.
+
 ## Instalación
 
 Necesita Python 3.9 o superior disponible como `python`.
@@ -61,6 +71,7 @@ Las excepciones valen para leer archivos existentes. No aplican a mensajes ni a 
 - **Solo conoce patrones.** No detecta estrategias de negocio, notas médicas ni nombres en lenguaje normal, ni formatos de clave que no estén en la lista.
 - **No deshace una fuga.** Si un secreto ya llegó a una IA o a un repositorio, revócalo.
 - **Solo cubre Claude Code y Codex.** Los chats en el navegador quedan fuera.
+- **Permitir es tu responsabilidad.** Lo que permitas sale de tu equipo como de costumbre. El flujo de permiso se verificó en Claude Code real con un modelo simulado, no en Codex real.
 - **Necesita Python.** Si `python` no se puede ejecutar, el hook no bloquea.
 - **Puede dar falsos positivos.** Un número largo puede pasar un dígito de control por casualidad.
 

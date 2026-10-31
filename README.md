@@ -13,7 +13,17 @@ SinFuga stops accidental leaks of secrets and personal data before they reach Cl
 - **Sensitive paths:** `.env`, `.ssh`, cloud credentials and AI tool tokens. `.env.example` is allowed.
 - **Files with secrets:** it scans a file's content before the AI reads it, through file tools and commands such as `cat config.py`.
 
-Block messages never repeat the secret, and input SinFuga cannot understand is blocked.
+Notices never repeat the secret, and input SinFuga cannot understand is blocked.
+
+## You decide
+
+SinFuga is not a limit of your plan or of the AI. It is a local protection: it explains what it found, why it is dangerous, and lets you choose.
+
+- **Safest option:** remove the data, or use an environment variable or fake values.
+- **Continue with a message:** send it again starting with `sinfuga permitir:`.
+- **Continue with an action:** type the code from the notice, such as `sinfuga permitir 1a2b3c`. It works once, only for that exact action, for 10 minutes.
+
+Only a message typed by a person counts, so the AI cannot approve itself through its tools. Hooks are not a security boundary, though: an AI with unrestricted shell access could still try to work around them. Notices are in Spanish for now.
 
 ## Install
 
@@ -61,6 +71,7 @@ Exceptions apply to reading existing files. They do not apply to prompts or new 
 - **It only knows patterns.** Business strategy, medical notes or names in plain language are not detected, and neither are unlisted key formats.
 - **It cannot undo a leak.** If a secret already reached an AI or a repository, revoke it.
 - **It only covers Claude Code and Codex.** Browser chats are not covered.
+- **Allowing is your responsibility.** Once you allow something, it leaves your computer as usual. The allow flow was verified in real Claude Code with a simulated model, not in real Codex.
 - **It needs Python.** If `python` cannot run, the hook does not block.
 - **False positives can happen.** Long numbers can pass a checksum by chance.
 

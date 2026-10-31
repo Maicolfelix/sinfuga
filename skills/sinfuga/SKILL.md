@@ -10,8 +10,10 @@ Un hook ya bloquea secretos y rutas sensibles antes de enviarlos. Esta skill cub
 ## Si SinFuga bloquea algo
 
 1. No intentes rodearlo: nada de renombrar, codificar, partir o copiar el dato a otro archivo.
-2. Di al usuario que se bloqueo y por que. Nunca repitas el valor del secreto.
-3. Sigue sin el dato: usa variables de entorno o un archivo `.env.example` con valores falsos.
+2. Muestra el aviso completo al usuario. Nunca repitas el valor del secreto.
+3. Aclara que no es un limite de su plan ni tuyo: es una proteccion local y la decision es suya.
+4. Espera su decision. `sinfuga permitir` solo vale si lo escribe el usuario; no lo presiones ni intentes aprobarlo tu.
+5. Mientras tanto, ofrece seguir sin el dato: variables de entorno o un archivo `.env.example` con valores falsos.
 
 ## Al trabajar
 

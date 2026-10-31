@@ -1,6 +1,7 @@
 """Prueba SinFuga como proceso real, con datos falsos. Ejecutar: python test_sinfuga.py"""
 import json
 import os
+import re
 import subprocess
 import sys
 import tempfile
@@ -22,6 +23,11 @@ CURP = "GOMC800101" + "HDFRRR09"
 CEDULA = "cedula: 1.023." + "456.789"
 
 
+# Los permisos se guardan en un HOME falso: las pruebas nunca tocan al usuario real.
+FAKE_HOME = tempfile.mkdtemp()
+HOOK_ENV = {**os.environ, "USERPROFILE": FAKE_HOME, "HOME": FAKE_HOME}
+
+
 def verdict(p):
     """Devuelve (2, razon) si el hook bloqueo y (0, '') si dejo pasar."""
     assert p.returncode == 0, p
@@ -36,7 +42,8 @@ def verdict(p):
 
 
 def run(event):
-    return verdict(subprocess.run([sys.executable, SCRIPT], input=json.dumps(event).encode(), capture_output=True))
+    p = subprocess.run([sys.executable, SCRIPT], input=json.dumps(event).encode(), env=HOOK_ENV, capture_output=True)
+    return verdict(p)
 
 
 def prompt(text):
@@ -107,6 +114,40 @@ with tempfile.TemporaryDirectory() as tmp:
     blocked(tool("Write", {"file_path": ".sinfuga-ignore", "content": "*"}, str(project)))
     p = subprocess.run([sys.executable, SCRIPT, "scan", str(project)], capture_output=True, text=True)
     assert "real.py:1" in p.stdout and "falso.py" not in p.stdout, p
+
+    # El aviso explica el riesgo y deja claro que no es un limite del plan
+    code, reason = prompt(f"mi clave es {AWS}")
+    assert "No es un límite de tu plan" in reason and "Por qué es peligroso" in reason, reason
+    assert "credencial" in reason and "sinfuga permitir:" in reason, reason
+    assert "documento de identidad" in prompt(CPF)[1] and "compras" in prompt(CARD)[1]
+
+    # La persona decide: mensaje con prefijo
+    allowed(prompt(f"sinfuga permitir: {AWS}"))
+    allowed(prompt(f"  SinFuga Permitir: {AWS}"))
+    blocked(prompt(f"hola, sinfuga permitir: {AWS}"))
+
+    # La persona decide: accion concreta, una vez y sin que la IA pueda aprobarse
+    def session_tool(name, tool_input):
+        return run({"hook_event_name": "PreToolUse", "session_id": "s1", "tool_name": name,
+                    "tool_input": tool_input, "cwd": tmp})
+
+    action = {"file_path": "config.py"}
+    reason = session_tool("Read", action)[1]
+    permit = re.search(r"sinfuga permitir ([0-9a-f]{6})", reason).group(1)
+    assert "No es un límite de tu plan" in reason and GITHUB not in reason, reason
+    blocked(session_tool("Read", action))  # avisar no autoriza
+    allowed(prompt(f"sinfuga permitir {permit}"))
+    blocked(session_tool("Bash", {"command": "cat config.py"}))  # otra accion no usa el permiso
+    allowed(session_tool("Read", action))
+    blocked(session_tool("Read", action))  # un solo uso
+
+    blocked(session_tool("Write", {"file_path": "~/.sinfuga/permisos.json", "content": "{}"}))
+    blocked(session_tool("Bash", {"command": "echo {} > ~/.sinfuga/permisos.json"}))
+    permits = Path(FAKE_HOME, ".sinfuga", "permisos.json")
+    permits.write_text(json.dumps({permit: 1}))  # vencido
+    blocked(session_tool("Read", action))
+    permits.write_text("dañado", "utf-8")
+    blocked(session_tool("Read", action))
 
     # Falla cerrado ante entrada invalida
     p = subprocess.run([sys.executable, SCRIPT], input=b"no es json", capture_output=True)

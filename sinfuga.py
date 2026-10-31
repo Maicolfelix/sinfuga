@@ -1,7 +1,8 @@
 #!/usr/bin/env python3
 """SinFuga: frena secretos y datos personales antes de que lleguen a Claude Code o Codex.
 
-Sin argumentos funciona como hook: lee JSON por stdin y responde JSON para bloquear.
+Sin argumentos funciona como hook: lee JSON por stdin y responde JSON para detener.
+Explica el riesgo y deja decidir a la persona: `sinfuga permitir` solo vale en un mensaje suyo.
   sinfuga.py scan RUTA   audita archivos (exit 1 si encuentra algo)
   sinfuga.py install     instala hooks, skill y agente en este usuario
   sinfuga.py uninstall   quita los hooks
@@ -9,11 +10,13 @@ Nunca imprime el secreto: solo el tipo de hallazgo y el archivo.
 """
 import fnmatch
 import functools
+import hashlib
 import json
 import os
 import re
 import shutil
 import sys
+import time
 from pathlib import Path
 
 # ponytail: patrones a mano para no exigir dependencias; integrar Gitleaks si hacen falta sus 150+ reglas.
@@ -26,8 +29,8 @@ RULES = {
     "clave Stripe": r"\b[sr]k_live_[0-9a-zA-Z]{16,}",
     "llave privada": r"-----BEGIN [A-Z ]*PRIVATE KEY-----",
     "JWT": r"\beyJ[\w-]{10,}\.eyJ[\w-]{10,}\.[\w-]{10,}",
-    "URL con contrasena": r"\b[a-z][a-z0-9+.-]*://[^\s:/@$<{]+:[^\s:/@$<{]+@",
-    "CURP de Mexico": r"\b[A-Z]{4}\d{6}[HM][A-Z]{5}[A-Z0-9]\d\b",
+    "URL con contraseña": r"\b[a-z][a-z0-9+.-]*://[^\s:/@$<{]+:[^\s:/@$<{]+@",
+    "CURP de México": r"\b[A-Z]{4}\d{6}[HM][A-Z]{5}[A-Z0-9]\d\b",
     # Sin digito de control: solo cuenta si el texto dice que es un documento.
     "documento de identidad": r"(?i)\b(?:c[eé]dula(?: de ciudadan[ií]a)?|c\.c\.|dni|documento de identidad)\D{0,12}\d(?:[.\s]?\d){5,9}\b",
 }
@@ -44,7 +47,7 @@ SENSITIVE_PATH = re.compile(
     r"|\.ssh/|id_(?:rsa|dsa|ecdsa|ed25519)(?!\.pub)|\.aws/credentials|\.kube/config"
     r"|\.docker/config\.json|\.git-credentials|\.netrc|\.pgpass"
     r"|\.codex/auth\.json|\.claude/\.credentials\.json|login data"
-    r"|\.sinfuga-ignore$|[^/]*\.(?:pem|pfx|p12)$)"
+    r"|\.sinfuga-ignore$|\.sinfuga/permisos\.json$|[^/]*\.(?:pem|pfx|p12)$)"
 )
 SHELL_TOKEN = re.compile(r"""[^\s"'|;&<>()=,@]+""")
 PATCH_FILE = re.compile(r"^\*\*\* \w+ File: (.+)$", re.M)
@@ -52,6 +55,17 @@ MAX_FILE = 2_000_000
 MAX_TARGETS = 50
 SKIP_DIRS = {".git", "node_modules", ".venv", "venv", "__pycache__"}
 IGNORE_FILE = ".sinfuga-ignore"
+PERMIT_PROMPT = re.compile(r"(?i)^\s*sinfuga permitir:")
+PERMIT_CODE = re.compile(r"(?i)^\s*sinfuga permitir ([0-9a-f]{6})\s*$")
+PERMIT_SECONDS = 600
+RISKS = (
+    (("tarjeta",), "Con un número de tarjeta alguien puede intentar compras a tu nombre."),
+    (("documento", "CURP", "CPF", "RUT", "NIT"),
+     "Con un documento de identidad alguien puede suplantarte o cometer fraudes, y no se cambia como una contraseña."),
+    (("ruta sensible",), "Este archivo suele guardar contraseñas, llaves o sesiones activas: quien lo lea puede entrar a tus cuentas."),
+    (("clave", "token", "API key", "llave", "JWT", "contraseña"),
+     "Quien tenga esta credencial puede entrar a tu cuenta o tus servidores, robar información o generar cobros."),
+)
 NIT_WEIGHTS = (3, 7, 13, 17, 19, 23, 29, 37, 41)
 
 
@@ -87,7 +101,7 @@ def valid_nit(m):
 
 # Formatos con digito de control: se valida para no bloquear cualquier numero.
 CHECKED = {
-    "numero de tarjeta": (re.compile(r"(?<![\d.-])[3-6](?:[ -]?\d){12,18}(?![\d-])"), valid_card),
+    "número de tarjeta": (re.compile(r"(?<![\d.-])[3-6](?:[ -]?\d){12,18}(?![\d-])"), valid_card),
     "CPF de Brasil": (re.compile(r"(?<![\d.])\d{3}\.\d{3}\.\d{3}-\d{2}(?!\d)"), valid_cpf),
     "RUT de Chile": (re.compile(r"(?<![\d.])(\d{1,2}\.\d{3}\.\d{3})-([\dkK])\b"), valid_rut),
     "NIT de Colombia": (re.compile(r"(?i)\bNIT\D{0,6}(\d{3}\.?\d{3}\.?\d{3})-?(\d)\b"), valid_nit),
@@ -99,7 +113,7 @@ def find_secrets(text):
     for m in ASSIGNMENT.finditer(text):
         value = m.group(1)
         if re.search(r"[A-Za-z]", value) and re.search(r"\d", value) and not PLACEHOLDER.search(value):
-            found.add("contrasena o secreto")
+            found.add("contraseña o secreto")
     found.update(name for name, (rx, valid) in CHECKED.items() if any(valid(m) for m in rx.finditer(text)))
     return found
 
@@ -153,7 +167,13 @@ def scan_file(path):
 def check(event):
     """Devuelve la lista de problemas del evento; vacia si puede continuar."""
     if event.get("hook_event_name") == "UserPromptSubmit":
-        return [f"el mensaje contiene: {name}" for name in sorted(find_secrets(event.get("prompt", "")))]
+        prompt = event.get("prompt", "")
+        permit = PERMIT_CODE.match(prompt)
+        if permit:
+            grant_permit(permit.group(1).lower())
+        if permit or PERMIT_PROMPT.match(prompt):
+            return []
+        return [f"el mensaje contiene: {name}" for name in sorted(find_secrets(prompt))]
 
     tool_input = event.get("tool_input") or {}
     if not isinstance(tool_input, dict):
@@ -167,7 +187,69 @@ def check(event):
         path = Path(cwd, target)
         if not ignored(path, cwd):
             problems += [f"{target} contiene: {n}" for n in sorted(scan_file(path))]
-    return problems
+    return [] if problems and use_permit(action_code(event)) else problems
+
+
+def permits_path():
+    return Path.home() / ".sinfuga" / "permisos.json"
+
+
+def load_permits():
+    try:
+        permits = json.loads(permits_path().read_text("utf-8"))
+        return {code: end for code, end in permits.items() if end > time.time()}
+    except (OSError, ValueError, AttributeError, TypeError):
+        return {}
+
+
+def save_permits(permits):
+    permits_path().parent.mkdir(exist_ok=True)
+    permits_path().write_text(json.dumps(permits), "utf-8")
+
+
+def grant_permit(code):
+    save_permits({**load_permits(), code: time.time() + PERMIT_SECONDS})
+
+
+def use_permit(code):
+    """Consume el permiso: vale una sola vez."""
+    permits = load_permits()
+    found = permits.pop(code, None) is not None
+    if found:
+        save_permits(permits)
+    return found
+
+
+def action_code(event):
+    """Identifica esta accion exacta: si la IA cambia algo, el permiso ya no vale."""
+    action = [event.get("session_id"), event.get("tool_name"), event.get("tool_input")]
+    return hashlib.sha256(json.dumps(action, sort_keys=True).encode()).hexdigest()[:6]
+
+
+def explain(event, problems):
+    risks = [text for names, text in RISKS if any(n in p for n in names for p in problems)]
+    risks.append(
+        "Lo que envías a una IA sale de tu equipo y puede quedar en registros e historiales. "
+        "Si llega a un repositorio o enlace público, cualquiera puede copiarlo, y borrarlo después no lo recupera."
+    )
+    if event.get("hook_event_name") == "UserPromptSubmit":
+        proceed = "Si decides continuar, vuelve a enviar tu mensaje empezando por: sinfuga permitir:"
+    else:
+        proceed = (
+            f"Si decides continuar, escribe tú este mensaje: sinfuga permitir {action_code(event)}\n"
+            f"Vale una sola vez, solo para esta acción y durante {PERMIT_SECONDS // 60} minutos. "
+            "Para la IA: muestra este aviso completo al usuario. No puedes aprobarlo ni rodearlo."
+        )
+    return "\n".join([
+        "SinFuga detuvo esto antes de que saliera de tu equipo. "
+        "No es un límite de tu plan ni de la IA: es una protección local y la decisión es tuya.",
+        "", "Qué encontró:", *(f"- {p}" for p in problems),
+        "", "Por qué es peligroso:", *(f"- {r}" for r in risks),
+        "", "Qué puedes hacer:",
+        "- Lo más seguro: quita el dato, usa una variable de entorno o datos falsos.",
+        f"- {proceed}",
+        "- Si este dato ya se compartió, cámbialo o revócalo. Si es un falso positivo, lista el archivo en .sinfuga-ignore.",
+    ])
 
 
 def hook():
@@ -180,7 +262,7 @@ def hook():
         sys.exit(2)
     if not problems:
         return
-    reason = "SinFuga bloqueo esto:\n- " + "\n- ".join(problems)
+    reason = explain(event, problems)
     # JSON y no exit 2: PowerShell -Command convierte el 2 en 1, que no bloquea.
     if event.get("hook_event_name") == "UserPromptSubmit":
         print(json.dumps({"decision": "block", "reason": reason}))
