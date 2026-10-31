@@ -4,7 +4,7 @@
 
 SinFuga frena las fugas accidentales de secretos y datos personales antes de que lleguen a Claude Code o Codex. Es un solo archivo de Python sin dependencias, y detecta documentos de identidad de América Latina.
 
-> **Estado: versión temprana.** Se prueba simulando las llamadas de cada herramienta, todavía no dentro de las herramientas reales. Reduce los accidentes, pero no garantiza que nada se filtre.
+> **Estado: versión temprana.** El bloqueo se verificó dentro de Claude Code 2.1.309 real con un modelo local simulado. Dentro de Codex real aún no se ha verificado, solo con llamadas simuladas. Reduce los accidentes, pero no garantiza que nada se filtre.
 
 ## Qué bloquea
 
@@ -26,7 +26,9 @@ python test_sinfuga.py
 python sinfuga.py install
 ```
 
-`install` copia el script a `~/.sinfuga`, agrega hooks a `~/.claude/settings.json` y `~/.codex/hooks.json` (con una copia `.bak`), e instala la skill y el agente auditor. En Codex abre `/hooks` y aprueba el hook, porque no se ejecuta hasta entonces.
+`install` copia el script a `~/.sinfuga`, agrega hooks a `~/.claude/settings.json` y `~/.codex/hooks.json` (con una copia `.bak`), e instala la skill y el agente auditor. 
+
+**Codex ignora en silencio los hooks que no has aprobado.** Hasta que abras `/hooks` y apruebes SinFuga, Codex no avisa y no se bloquea nada.
 
 Para quitar los hooks:
 

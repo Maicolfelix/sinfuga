@@ -4,7 +4,7 @@
 
 SinFuga stops accidental leaks of secrets and personal data before they reach Claude Code or Codex. It is one Python file with no dependencies, and it has detectors for Latin American identity documents.
 
-> **Status: early version.** It is tested by simulating each tool's hook calls, not yet inside the real tools. It reduces accidents; it does not guarantee that nothing leaks.
+> **Status: early version.** Blocking was verified inside real Claude Code 2.1.309 against a simulated local model. Inside real Codex it has not been verified yet, only through simulated hook calls. It reduces accidents; it does not guarantee that nothing leaks.
 
 ## What it blocks
 
@@ -26,7 +26,9 @@ python test_sinfuga.py
 python sinfuga.py install
 ```
 
-`install` copies the script to `~/.sinfuga`, adds hooks to `~/.claude/settings.json` and `~/.codex/hooks.json` (keeping a `.bak` copy), and installs the skill and the auditor agent. In Codex, open `/hooks` and trust the hook; it does not run until you do.
+`install` copies the script to `~/.sinfuga`, adds hooks to `~/.claude/settings.json` and `~/.codex/hooks.json` (keeping a `.bak` copy), and installs the skill and the auditor agent. 
+
+**Codex silently ignores hooks you have not trusted.** Until you open `/hooks` and trust SinFuga, Codex gives no warning and nothing is blocked.
 
 To remove the hooks:
 

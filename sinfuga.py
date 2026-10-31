@@ -254,7 +254,7 @@ def install():
         shutil.copytree(here / "skills" / "sinfuga", home / tool / "skills" / "sinfuga", dirs_exist_ok=True)
     (home / ".claude" / "agents").mkdir(exist_ok=True)
     shutil.copy2(here / "agents" / "sinfuga-auditor.md", home / ".claude" / "agents")
-    print("Instalado. En Codex abre /hooks y confia en el hook; hasta entonces no se ejecuta.")
+    print("Instalado. ATENCION: Codex ignora en silencio este hook hasta que lo apruebes en /hooks.")
 
 
 def main():
